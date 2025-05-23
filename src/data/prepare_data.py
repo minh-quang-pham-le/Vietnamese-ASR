@@ -1,8 +1,4 @@
 import os
-import torchaudio
-from datasets import Dataset, DatasetDict, Audio
-
-import os
 import pandas as pd
 from datasets import Dataset, DatasetDict, Audio
 
@@ -13,7 +9,7 @@ def load_vivos_dataset(base_path):
         wav_dir = os.path.join(base_path, split, "waves")
         prompt_file = os.path.join(base_path, split, "prompts.txt")
 
-        # Sửa: phân tách bằng regex khoảng trắng
+        # Phân tách bằng regex khoảng trắng
         df = pd.read_csv(prompt_file, sep=r"\s+", engine="python", header=None, names=["file_id", "transcription"])
         
         for _, row in df.iterrows():
