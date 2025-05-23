@@ -1,0 +1,7 @@
+model_checkpoint: "nguyenvulebinh/wav2vec2-base-vietnamese-250h"
+dataset_path: "data/vivos"
+output_dir: "outputs/"
+batch_size: 8
+learning_rate: 3e-5
+num_train_epochs: 10
+eval_steps: 100
