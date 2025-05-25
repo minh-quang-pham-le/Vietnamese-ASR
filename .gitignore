@@ -3,6 +3,7 @@
 data/
 *.csv
 wav2vec2-vivos-ft
+.DS_Store
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

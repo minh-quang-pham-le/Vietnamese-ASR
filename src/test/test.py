@@ -4,6 +4,7 @@ import torch
 import torchaudio
 from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 from datasets import Dataset, DatasetDict, Audio
+from jiwer import wer, Compose, ToLowerCase, RemoveMultipleSpaces
         
 if __name__ == "__main__":
     # --- Load ground-truth transcripts ---
@@ -62,6 +63,7 @@ if __name__ == "__main__":
                 logits = model(input_values).logits
 
             pred_ids = torch.argmax(logits, dim=-1)
+            print("Raw pred_ids:", pred_ids[0].tolist())
             transcription = processor.batch_decode(pred_ids)[0].lower().strip()
 
             # Ground truth
@@ -75,8 +77,8 @@ if __name__ == "__main__":
     # --- Tính WER ---
     print("\n" + "-" * 100)
     if len(refs) == 0:
-        print("❌ Không có mẫu hợp lệ nào để đánh giá WER.")
+        print("Không có mẫu hợp lệ nào để đánh giá WER.")
     else:
         transform = Compose([ToLowerCase(), RemoveMultipleSpaces()])
         score = wer(refs, preds, truth_transform=transform, hypothesis_transform=transform)
-        print(f"✅ WER trên tập test VIVOS: {score * 100:.2f}%")
+        print(f"WER trên tập test VIVOS: {score * 100:.2f}%")
