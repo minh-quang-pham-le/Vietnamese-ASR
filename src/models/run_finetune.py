@@ -1,7 +1,7 @@
 import torch
 import yaml
 from transformers import AutoProcessor, AutoModelForCTC, TrainingArguments, Trainer, DataCollatorCTCTokenizer
-from preprocess.prepare_dataset import load_vivos_dataset, preprocess_dataset
+from data.prepare_data import load_vivos_dataset, preprocess_dataset
 from utils.metrics import compute_wer
 from datasets import load_metric
 

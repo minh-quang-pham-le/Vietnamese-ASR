@@ -1,6 +1,8 @@
 *.wav
 *.txt
 data/
+*.csv
+wav2vec2-vivos-ft
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -7,7 +7,6 @@ def load_vivos_dataset(base_path):
     for split in ["train", "test"]:
         wav_dir = os.path.join(base_path, split, "waves")
         prompt_file = os.path.join(base_path, split, "prompts.txt")
-        print(wav_dir, prompt_file)
 
         with open(prompt_file, "r", encoding="utf-8") as f:
             for line in f:
@@ -30,3 +29,4 @@ if __name__ == "__main__":
     base_path = "data\\train\\vivos"
     dataset = load_vivos_dataset(base_path)
     dataset = preprocess_dataset(dataset)
+    print(dataset)
