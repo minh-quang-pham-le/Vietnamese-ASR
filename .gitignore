@@ -2,8 +2,9 @@
 *.txt
 data/
 *.csv
-wav2vec2-vivos-ft
+wav2vec2-vivos-finetune
 .DS_Store
+/cache
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

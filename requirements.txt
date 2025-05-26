@@ -3,3 +3,6 @@ transformers
 datasets[audio]
 torchaudio
 jiwer
+tqdm
+pyctcdecode
+json

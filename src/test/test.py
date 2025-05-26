@@ -2,83 +2,109 @@ import os
 import pandas as pd
 import torch
 import torchaudio
-from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
-from datasets import Dataset, DatasetDict, Audio
-from jiwer import wer, Compose, ToLowerCase, RemoveMultipleSpaces
-        
-if __name__ == "__main__":
-    # --- Load ground-truth transcripts ---
-    transcript_dict = {}
-    with open("data/train/vivos/test/prompts.txt", "r", encoding="utf-8") as f:
-        for line in f:
-            parts = line.strip().split(maxsplit=1)
-            if len(parts) == 2:
-                audio_id, text = parts
-                transcript_dict[audio_id] = text.lower().strip()
+from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor, AutoTokenizer, AutoModelForSeq2SeqLM
+from pyctcdecode import Alphabet, BeamSearchDecoderCTC, LanguageModel
+import kenlm
+import json
+from tqdm import tqdm
+import re
+from huggingface_hub import hf_hub_download
 
-    # --- Device ---
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# 1. Load mô hình
+MODEL_DIR = "nguyenvulebinh/wav2vec2-base-vietnamese-250h"
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # --- Load model & processor ---
-    model = Wav2Vec2ForCTC.from_pretrained("wav2vec2-vivos-ft").to(device)
-    processor = Wav2Vec2Processor.from_pretrained("wav2vec2-vivos-ft")
-    model.eval()
+model = Wav2Vec2ForCTC.from_pretrained(MODEL_DIR, cache_dir="./cache").to(device).eval()
+processor = Wav2Vec2Processor.from_pretrained(MODEL_DIR, cache_dir="./cache")
 
-    # --- Duyệt file audio ---
-    WAV_DIR = "data/train/vivos/test/waves"
-    preds = []
-    refs = []
+# Language model path
+lm_path = hf_hub_download(
+    repo_id="nguyenvulebinh/wav2vec2-base-vietnamese-250h",
+    filename="vi_lm_4grams.bin.zip",
+    cache_dir="./cache"
+)
 
-    print(f"{'ID':<20} | {'Ground truth':<50} | Prediction")
-    print("-" * 100)
+kenlm_path = "./cache/vi_lm_4grams.bin"
 
-    for root, _, files in os.walk(WAV_DIR):
-        for fname in files:
-            if not fname.endswith(".wav"):
-                continue
+# Giải nén
+import zipfile
+with zipfile.ZipFile(lm_path, 'r') as zip_ref:
+    zip_ref.extractall("./cache")
 
-            audio_id = os.path.splitext(fname)[0]
-            if audio_id not in transcript_dict:
-                continue
+# 2. Load mô hình sửa lỗi chính tả 
+corr_tokenizer = AutoTokenizer.from_pretrained("bmd1905/vietnamese-correction")
+corr_model = AutoModelForSeq2SeqLM.from_pretrained("bmd1905/vietnamese-correction")
 
-            path = os.path.join(root, fname)
+def remove_punctuation(text):
+    return re.sub(r"[^\w\sÀ-ỹ]", "", text)
 
-            # Load audio
-            try:
-                speech_array, sr = torchaudio.load(path)
-            except Exception as e:
-                print(f"[!] Lỗi đọc {path}: {e}")
-                continue
+def correct_text(text):
+    inputs = corr_tokenizer(text, return_tensors="pt", truncation=True, max_length=128)
+    input_ids = inputs["input_ids"].to(device)
+    attention_mask = inputs["attention_mask"].to(device)
 
-            if sr != 16000:
-                resampler = torchaudio.transforms.Resample(orig_freq=sr, new_freq=16000)
-                speech_array = resampler(speech_array)
+    corr_model.to(device)
 
-            # Predict
-            input_values = processor(
-                speech_array.squeeze(), sampling_rate=16000, return_tensors="pt"
-            ).input_values.to(device)
+    with torch.no_grad():
+        outputs = corr_model.generate(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            max_length=128
+        )
+    corrected = corr_tokenizer.decode(outputs[0], skip_special_tokens=True)
+    corrected = remove_punctuation(corrected)
+    return corrected.lower().strip()
 
-            with torch.no_grad():
-                logits = model(input_values).logits
+# 3. Load vocab
+vocab_dict = processor.tokenizer.get_vocab()
+sort_vocab = sorted((value, key) for (key, value) in vocab_dict.items())
+vocab = [x[1] for x in sort_vocab][:-2]
+vocab_list = vocab
+# Convert ctc blank character representation
+vocab_list[processor.tokenizer.pad_token_id] = ""
+# Replace special characters
+vocab_list[processor.tokenizer.unk_token_id] = ""
+# vocab_list[tokenizer.bos_token_id] = ""
+# vocab_list[tokenizer.eos_token_id] = ""
+# Convert space character representation
+vocab_list[processor.tokenizer.word_delimiter_token_id] = " "
+print(f"Vocab size: {len(vocab_list)}")
 
-            pred_ids = torch.argmax(logits, dim=-1)
-            print("Raw pred_ids:", pred_ids[0].tolist())
-            transcription = processor.batch_decode(pred_ids)[0].lower().strip()
+# 4. Tạo decoder dùng KenLM
+alphabet = Alphabet(vocab_list, is_bpe=False)
+kenlm_model = kenlm.Model(kenlm_path)
+decoder = BeamSearchDecoderCTC(alphabet, language_model=LanguageModel(kenlm_model))
 
-            # Ground truth
-            ground_truth = transcript_dict[audio_id]
+# 5. Load danh sách test
+PROMPT_CSV = "prompts_asr.csv"
+AUDIO_DIR = "data/test/private-test-data-asr"
 
-            if transcription and ground_truth:
-                preds.append(transcription)
-                refs.append(ground_truth)
-                print(f"{audio_id:<20} | {ground_truth:<50} | {transcription}")
+df = pd.read_csv(PROMPT_CSV)
+audio_files = df["path"].tolist()
 
-    # --- Tính WER ---
-    print("\n" + "-" * 100)
-    if len(refs) == 0:
-        print("Không có mẫu hợp lệ nào để đánh giá WER.")
-    else:
-        transform = Compose([ToLowerCase(), RemoveMultipleSpaces()])
-        score = wer(refs, preds, truth_transform=transform, hypothesis_transform=transform)
-        print(f"WER trên tập test VIVOS: {score * 100:.2f}%")
+# 6. Hàm nhận dạng dùng KenLM + beam search
+def transcribe_beam(audio_path):
+    speech_array, sr = torchaudio.load(audio_path)
+    if sr != 16000:
+        resampler = torchaudio.transforms.Resample(sr, 16000)
+        speech_array = resampler(speech_array)
+
+    inputs = processor(speech_array.squeeze(), sampling_rate=16000, return_tensors="pt", padding="longest")
+    input_values = inputs.input_values.to(device)
+
+    with torch.no_grad():
+        logits = model(input_values).logits[0].cpu().detach().numpy()  # Shape (T, V)
+
+    # Beam Search decode using KenLM
+    transcription = decoder.decode(logits, beam_width=500)
+    clean_text = " ".join(transcription.lower().strip().split())  # Chuẩn hóa khoảng trắng
+    final_text = correct_text(clean_text)
+    return final_text
+
+# 7. Ghi kết quả vào transcripts.txt
+with open("transcripts.txt", "w", encoding="utf-8") as out_f:
+    for fname in tqdm(audio_files):
+        path = os.path.join(AUDIO_DIR, fname)
+        transcript = transcribe_beam(path)
+        out_f.write(transcript + "\n")
+        print(f"[Done]{fname} → {transcript}")
