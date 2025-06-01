@@ -2,7 +2,7 @@
 *.txt
 data/
 *.csv
-wav2vec2-vivos-finetune
+wav2vec2_vi_ft
 .DS_Store
 /cache
 

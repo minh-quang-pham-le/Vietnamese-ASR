@@ -11,11 +11,12 @@ import re
 from huggingface_hub import hf_hub_download
 
 # 1. Load mô hình
-MODEL_DIR = "nguyenvulebinh/wav2vec2-base-vietnamese-250h"
+MODEL_DIR = "wav2vec2_vi_ft"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 model = Wav2Vec2ForCTC.from_pretrained(MODEL_DIR, cache_dir="./cache").to(device).eval()
 processor = Wav2Vec2Processor.from_pretrained(MODEL_DIR, cache_dir="./cache")
+print(processor.tokenizer.get_vocab())
 
 # Language model path
 lm_path = hf_hub_download(
@@ -94,7 +95,7 @@ def transcribe_beam(audio_path):
 
     with torch.no_grad():
         logits = model(input_values).logits[0].cpu().detach().numpy()  # Shape (T, V)
-
+    
     # Beam Search decode using KenLM
     transcription = decoder.decode(logits, beam_width=500)
     clean_text = " ".join(transcription.lower().strip().split())  # Chuẩn hóa khoảng trắng
